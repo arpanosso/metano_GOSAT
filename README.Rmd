@@ -13,23 +13,121 @@ knitr::opts_chunk$set(
 
 # metano_GOSAT
 
-<!-- badges: start -->
-<!-- badges: end -->
 
-The goal of metano_GOSAT is to ...
-
-What is special about using `README.Rmd` instead of just `README.md`? You can include R chunks like so:
-
-```{r cars}
-summary(cars)
+### Carregando os Pacotes
+```{r, message=FALSE, error=FALSE, warning=FALSE}
+# Lendo os pacotes 
+library(tidyverse)
+library(ggpubr)
+library(geobr)
+library(sp)
+library(gstat)
 ```
 
-You'll still need to render `README.Rmd` regularly, to keep `README.md` up-to-date. `devtools::build_readme()` is handy for this. You could also use GitHub Actions to re-render `README.Rmd` every time you push. An example workflow can be found here: <https://github.com/r-lib/actions/tree/master/examples>.
 
-You can also embed plots, for example:
-
-```{r pressure, echo = FALSE}
-plot(pressure)
+```{r}
+#################################################################
+# Diretório de uso do R
+# Baixando arquivo em .csv
+dados <- readr::read_csv("data/dados_MS.csv") |> 
+  mutate(data = lubridate::make_date(year, month, day))
+glimpse(dados)
 ```
 
-In that case, don't forget to commit and push the resulting figure files, so they display on GitHub.
+
+```{r}
+dados %>% 
+  filter(year==2009) %>% 
+  ggplot(aes(x=Long, y=Lat))+
+  geom_point()
+```
+
+
+```{r}
+dados_ax <- dados %>% 
+  filter(year==2009) %>% 
+  group_by(Lat,Long) %>% 
+  summarise(ch4_mean=mean(ch4,na.rm=TRUE))
+```
+
+
+```{r}
+dados_ax %>% 
+  ggplot(aes(x=Long, y=Lat))+
+  geom_point()
+```
+
+
+```{r}
+# Filtrando apenas ano de 2010
+dados2 <- dados_ax
+coordinates(dados2) = ~ Long + Lat
+# Variograma de nuvens de pontos
+vgm.cloud <- variogram(ch4_mean ~ 1, dados2[
+  -c(28,29,30,74,75,77,78,83,84,90,98,109,
+111,112,113,114,115,116,117,118,119,120,121,122,
+123,124,146,165,173,177,191,195,196,200,203,213,
+214,228,236,237,267,272,273,275,277,289,299,309,
+310,314,315,321),], 
+                       width=.5,
+                       cloud = TRUE)
+plot(vgm.cloud)
+```
+
+
+```{r}
+my_vgm <- print(vgm.cloud)
+
+my_vgm |> 
+  filter (dist < 0.5, gamma > 800) |> 
+  pull(left) |> 
+  table() |> names()
+
+```
+
+```{r}
+vgm.cloud <- variogram(ch4_mean ~ 1, dados2[-c(28,29,30,74,75,77,78,83,84,90,98,109,
+111,112,113,114,115,116,117,118,119,120,121,122,
+123,124,146,165,173,177,191,195,196,200,203,213,
+214,228,236,237,267,272,273,275,277,289,299,309,
+310,314,315,321),], 
+                       cutoff=6, 
+                       width=.5,
+                       cloud = FALSE,
+                       dX=0)
+plot(vgm.cloud)
+```
+
+
+```{r}
+m.xch4 <- fit.variogram(vgm.cloud,vgm(120,"Sph",1, 25)) 
+plot(vgm.cloud, model=m.xch4)
+```
+
+
+```{r}
+x<-dados2$Long
+y<-dados2$Lat
+dis <- .05 #Distância entre pontos
+grid <- expand.grid(X=seq(min(x),max(x),dis), Y=seq(min(y),max(y),dis))
+sp::gridded(grid) = ~ X + Y
+```
+
+```{r}
+ko_ch4<-gstat::krige(formula=ch4_mean ~ 1, dados2[-c(28,29,30,74,75,77,78,83,84,90,98,109,
+111,112,113,114,115,116,117,118,119,120,121,122,
+123,124,146,165,173,177,191,195,196,200,203,213,
+214,228,236,237,267,272,273,275,277,289,299,309,
+310,314,315,321),], grid, model=m.xch4, 
+    block=c(1,1),
+    nsim=0,
+    na.action=na.pass,
+    debug.level=-1,  
+    )
+```
+
+```{r}
+image(ko_ch4)
+```
+
+
